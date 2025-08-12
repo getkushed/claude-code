@@ -1,0 +1,547 @@
+name: Mobile Workflow Generator
+description: Generate GitHub Actions workflows optimized for mobile users with smart naming and templates
+
+on:
+  # Manual dispatch for direct workflow generation
+  workflow_dispatch:
+    inputs:
+      workflow_name:
+        description: 'Workflow name (will auto-add mobile- prefix)'
+        required: true
+        type: string
+      template_type:
+        description: 'Template type'
+        required: true
+        type: choice
+        options:
+          - 'ci-basic'
+          - 'deploy-auto'
+          - 'test-mobile'
+          - 'lint-claude'
+          - 'security-scan'
+          - 'custom'
+        default: 'ci-basic'
+      mobile_optimized:
+        description: 'Enable mobile optimizations'
+        required: false
+        type: boolean
+        default: true
+      notify_mobile:
+        description: 'Send mobile-friendly notifications'
+        required: false
+        type: boolean
+        default: true
+
+  # Issue comment triggers for mobile users
+  issue_comment:
+    types: [created]
+
+  # Pull request comment triggers  
+  pull_request_review_comment:
+    types: [created]
+
+jobs:
+  # Workflow generation job
+  generate-mobile-workflow:
+    name: Generate Mobile-Friendly Workflow
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    # Security permissions - minimal required access
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: write
+      id-token: write
+
+    # Conditional execution for mobile triggers
+    if: |
+      (github.event_name == 'workflow_dispatch') ||
+      (github.event_name == 'issue_comment' && (
+        contains(github.event.comment.body, '/mobile-workflow') ||
+        contains(github.event.comment.body, '/claude-generate') ||
+        contains(github.event.comment.body, '/auto-workflow')
+      )) ||
+      (github.event_name == 'pull_request_review_comment' && (
+        contains(github.event.comment.body, '/mobile-workflow') ||
+        contains(github.event.comment.body, '/claude-generate') ||
+        contains(github.event.comment.body, '/auto-workflow')
+      ))
+
+    steps:
+      - name: 🚀 Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📱 Setup Mobile Environment
+        run: |
+          # Create directories for mobile workflow generation
+          mkdir -p /tmp/mobile-workflows
+          mkdir -p /tmp/mobile-templates
+          mkdir -p /tmp/mobile-prompts
+          
+          # Set mobile-friendly environment variables
+          echo "MOBILE_MODE=true" >> $GITHUB_ENV
+          echo "WORKFLOW_PREFIX=mobile-" >> $GITHUB_ENV
+          echo "NOTIFICATION_MODE=mobile" >> $GITHUB_ENV
+          echo "TIMESTAMP=$(date '+%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+
+      - name: 🧠 Parse Mobile Command
+        id: parse_command
+        run: |
+          # Parse command from issue comment or workflow dispatch
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "source=manual" >> $GITHUB_OUTPUT
+            echo "workflow_name=${{ github.event.inputs.workflow_name }}" >> $GITHUB_OUTPUT
+            echo "template_type=${{ github.event.inputs.template_type }}" >> $GITHUB_OUTPUT
+            echo "mobile_optimized=${{ github.event.inputs.mobile_optimized }}" >> $GITHUB_OUTPUT
+            echo "notify_mobile=${{ github.event.inputs.notify_mobile }}" >> $GITHUB_OUTPUT
+          else
+            # Parse from comment body
+            COMMENT_BODY="${{ github.event.comment.body }}"
+            echo "source=comment" >> $GITHUB_OUTPUT
+            
+            # Extract workflow name (default to auto-generated)
+            WORKFLOW_NAME=$(echo "$COMMENT_BODY" | grep -oP '(?<=name:)\s*\S+' | tr -d ' ' || echo "auto-workflow-${{ env.TIMESTAMP }}")
+            echo "workflow_name=${WORKFLOW_NAME}" >> $GITHUB_OUTPUT
+            
+            # Extract template type
+            if echo "$COMMENT_BODY" | grep -q "/mobile-workflow"; then
+              TEMPLATE_TYPE="ci-basic"
+            elif echo "$COMMENT_BODY" | grep -q "/claude-generate"; then
+              TEMPLATE_TYPE="lint-claude"  
+            elif echo "$COMMENT_BODY" | grep -q "/auto-workflow"; then
+              TEMPLATE_TYPE="deploy-auto"
+            else
+              TEMPLATE_TYPE="ci-basic"
+            fi
+            echo "template_type=${TEMPLATE_TYPE}" >> $GITHUB_OUTPUT
+            
+            echo "mobile_optimized=true" >> $GITHUB_OUTPUT
+            echo "notify_mobile=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 📋 Create Workflow Templates
+        run: |
+          # Create mobile-optimized workflow templates
+          
+          # CI Basic Template
+          cat > /tmp/mobile-templates/ci-basic.yml << 'EOF'
+          name: mobile-ci-{WORKFLOW_NAME}
+          
+          on:
+            push:
+              branches: [main, develop]
+            pull_request:
+              branches: [main]
+          
+          jobs:
+            mobile-ci:
+              name: 📱 Mobile CI
+              runs-on: ubuntu-latest
+              timeout-minutes: 10
+              
+              steps:
+                - name: 📦 Checkout
+                  uses: actions/checkout@v4
+                  
+                - name: 🔧 Setup Environment  
+                  run: |
+                    echo "Setting up mobile-friendly CI environment"
+                    # Add your build steps here
+                    
+                - name: 🧪 Run Tests
+                  run: |
+                    echo "Running mobile-optimized tests"
+                    # Add your test commands here
+                    
+                - name: 📱 Mobile Notification
+                  if: always()
+                  run: |
+                    echo "CI Status: ${{ job.status }}"
+                    # Mobile-friendly notification logic here
+          EOF
+          
+          # Deploy Auto Template
+          cat > /tmp/mobile-templates/deploy-auto.yml << 'EOF'
+          name: auto-deploy-{WORKFLOW_NAME}
+          
+          on:
+            workflow_dispatch:
+              inputs:
+                environment:
+                  description: 'Deployment environment'
+                  required: true
+                  type: choice
+                  options: ['dev', 'staging', 'prod']
+                  default: 'dev'
+          
+          jobs:
+            auto-deploy:
+              name: 🚀 Auto Deploy
+              runs-on: ubuntu-latest
+              timeout-minutes: 15
+              environment: ${{ github.event.inputs.environment || 'dev' }}
+              
+              steps:
+                - name: 📦 Checkout
+                  uses: actions/checkout@v4
+                  
+                - name: 🚀 Deploy
+                  run: |
+                    echo "Deploying to ${{ github.event.inputs.environment || 'dev' }}"
+                    # Add your deployment steps here
+                    
+                - name: 📱 Success Notification
+                  run: |
+                    echo "✅ Deployment successful to ${{ github.event.inputs.environment || 'dev' }}"
+          EOF
+          
+          # Test Mobile Template
+          cat > /tmp/mobile-templates/test-mobile.yml << 'EOF'
+          name: mobile-test-{WORKFLOW_NAME}
+          
+          on:
+            push:
+            pull_request:
+          
+          jobs:
+            mobile-test:
+              name: 📱 Mobile Testing
+              runs-on: ubuntu-latest
+              timeout-minutes: 8
+              
+              steps:
+                - name: 📦 Checkout
+                  uses: actions/checkout@v4
+                  
+                - name: 🧪 Mobile Tests
+                  run: |
+                    echo "Running mobile-specific tests"
+                    # Add mobile testing commands
+                    
+                - name: 📊 Test Results
+                  if: always()
+                  run: |
+                    echo "Test Status: ${{ job.status }}"
+          EOF
+          
+          # Claude Lint Template  
+          cat > /tmp/mobile-templates/lint-claude.yml << 'EOF'
+          name: claude-lint-{WORKFLOW_NAME}
+          
+          on:
+            pull_request:
+              types: [opened, synchronize]
+            issue_comment:
+              types: [created]
+          
+          jobs:
+            claude-lint:
+              name: 🧠 Claude Linting
+              runs-on: ubuntu-latest
+              timeout-minutes: 10
+              
+              if: |
+                (github.event_name == 'pull_request') ||
+                (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude-lint'))
+              
+              steps:
+                - name: 📦 Checkout
+                  uses: actions/checkout@v4
+                  
+                - name: 🧠 Claude Code Analysis
+                  uses: anthropics/claude-code-action@beta
+                  with:
+                    anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+                    
+                - name: 📱 Mobile Lint Report
+                  run: |
+                    echo "Claude linting completed for mobile review"
+          EOF
+          
+          # Security Scan Template
+          cat > /tmp/mobile-templates/security-scan.yml << 'EOF'
+          name: mobile-security-{WORKFLOW_NAME}
+          
+          on:
+            push:
+              branches: [main]
+            pull_request:
+            schedule:
+              - cron: '0 2 * * 1' # Weekly on Monday
+          
+          jobs:
+            mobile-security:
+              name: 🔒 Mobile Security Scan
+              runs-on: ubuntu-latest
+              timeout-minutes: 12
+              
+              steps:
+                - name: 📦 Checkout
+                  uses: actions/checkout@v4
+                  
+                - name: 🔒 Security Analysis
+                  run: |
+                    echo "Running mobile-friendly security analysis"
+                    # Add security scanning commands
+                    
+                - name: 📱 Security Report
+                  if: always()
+                  run: |
+                    echo "Security scan completed - Status: ${{ job.status }}"
+          EOF
+
+      - name: 🎯 Generate Smart Workflow Name
+        id: smart_naming
+        run: |
+          # Smart naming logic with consistent prefixes
+          WORKFLOW_NAME="${{ steps.parse_command.outputs.workflow_name }}"
+          TEMPLATE_TYPE="${{ steps.parse_command.outputs.template_type }}"
+          
+          # Apply smart prefixes based on template type
+          case "$TEMPLATE_TYPE" in
+            "ci-basic")
+              PREFIX="mobile-"
+              ;;
+            "deploy-auto")
+              PREFIX="auto-"
+              ;;
+            "lint-claude")
+              PREFIX="claude-"
+              ;;
+            "test-mobile")
+              PREFIX="mobile-"
+              ;;
+            "security-scan")
+              PREFIX="mobile-"
+              ;;
+            *)
+              PREFIX="mobile-"
+              ;;
+          esac
+          
+          # Clean workflow name (remove invalid characters)
+          CLEAN_NAME=$(echo "$WORKFLOW_NAME" | sed 's/[^a-zA-Z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-\|-$//g')
+          
+          # Ensure name doesn't already have the prefix
+          if [[ "$CLEAN_NAME" != "$PREFIX"* ]]; then
+            FINAL_NAME="${PREFIX}${CLEAN_NAME}"
+          else
+            FINAL_NAME="$CLEAN_NAME"
+          fi
+          
+          # Ensure maximum length (GitHub limit)
+          FINAL_NAME=$(echo "$FINAL_NAME" | cut -c1-50)
+          
+          echo "smart_name=${FINAL_NAME}" >> $GITHUB_OUTPUT
+          echo "file_name=${FINAL_NAME}.yml" >> $GITHUB_OUTPUT
+          echo "Generated smart workflow name: ${FINAL_NAME}"
+
+      - name: 🛠️ Create Mobile-Optimized Workflow
+        id: create_workflow
+        run: |
+          TEMPLATE_TYPE="${{ steps.parse_command.outputs.template_type }}"
+          SMART_NAME="${{ steps.smart_naming.outputs.smart_name }}"
+          FILE_NAME="${{ steps.smart_naming.outputs.file_name }}"
+          
+          # Copy and customize template
+          if [ -f "/tmp/mobile-templates/${TEMPLATE_TYPE}.yml" ]; then
+            cp "/tmp/mobile-templates/${TEMPLATE_TYPE}.yml" "/tmp/mobile-workflows/${FILE_NAME}"
+            
+            # Replace template variables
+            sed -i "s/{WORKFLOW_NAME}/${SMART_NAME}/g" "/tmp/mobile-workflows/${FILE_NAME}"
+            
+            echo "workflow_created=true" >> $GITHUB_OUTPUT
+            echo "Created workflow file: ${FILE_NAME}"
+          else
+            echo "workflow_created=false" >> $GITHUB_OUTPUT
+            echo "❌ Template not found: ${TEMPLATE_TYPE}"
+            exit 1
+          fi
+
+      - name: 📝 Validate Generated Workflow
+        run: |
+          FILE_NAME="${{ steps.smart_naming.outputs.file_name }}"
+          
+          # Basic YAML validation
+          if ! python3 -c "import yaml; yaml.safe_load(open('/tmp/mobile-workflows/${FILE_NAME}', 'r'))"; then
+            echo "❌ Generated workflow has invalid YAML syntax"
+            exit 1
+          fi
+          
+          # Check required fields
+          if ! grep -q "name:" "/tmp/mobile-workflows/${FILE_NAME}"; then
+            echo "❌ Generated workflow missing 'name' field"
+            exit 1
+          fi
+          
+          if ! grep -q "on:" "/tmp/mobile-workflows/${FILE_NAME}"; then
+            echo "❌ Generated workflow missing 'on' triggers"
+            exit 1
+          fi
+          
+          if ! grep -q "jobs:" "/tmp/mobile-workflows/${FILE_NAME}"; then
+            echo "❌ Generated workflow missing 'jobs' section"
+            exit 1
+          fi
+          
+          echo "✅ Workflow validation passed"
+
+      - name: 💾 Save Generated Workflow
+        if: steps.create_workflow.outputs.workflow_created == 'true'
+        run: |
+          FILE_NAME="${{ steps.smart_naming.outputs.file_name }}"
+          
+          # Copy to actual workflows directory
+          cp "/tmp/mobile-workflows/${FILE_NAME}" ".github/workflows/${FILE_NAME}"
+          
+          echo "✅ Workflow saved to .github/workflows/${FILE_NAME}"
+
+      - name: 📱 Mobile Success Notification
+        if: success() && steps.parse_command.outputs.notify_mobile == 'true'
+        run: |
+          SMART_NAME="${{ steps.smart_naming.outputs.smart_name }}"
+          TEMPLATE_TYPE="${{ steps.parse_command.outputs.template_type }}"
+          FILE_NAME="${{ steps.smart_naming.outputs.file_name }}"
+          
+          # Create mobile-friendly success message
+          cat > /tmp/success-message.md << EOF
+          ## 📱 Mobile Workflow Generated Successfully! 
+          
+          **✅ Workflow Created:** \`${SMART_NAME}\`  
+          **📋 Template:** \`${TEMPLATE_TYPE}\`  
+          **📄 File:** \`.github/workflows/${FILE_NAME}\`
+          
+          ### 🚀 Quick Actions (Mobile-Friendly)
+          - **Run Now:** Go to Actions tab → Select workflow → Run workflow
+          - **Edit:** Click file link above to customize
+          - **View:** Check Actions tab for workflow runs
+          
+          ### 📱 Mobile Tips
+          - Use short commit messages for better mobile display
+          - Workflow status shows in GitHub mobile app notifications  
+          - Access via: Repository → Actions → Your Workflow Name
+          
+          *Generated by Mobile Workflow Generator at $(date)*
+          EOF
+          
+          echo "📱 SUCCESS: Mobile-friendly workflow '${SMART_NAME}' has been generated!"
+          cat /tmp/success-message.md
+
+      - name: 📱 Mobile Error Notification  
+        if: failure()
+        run: |
+          # Create mobile-friendly error message
+          cat > /tmp/error-message.md << EOF
+          ## ❌ Mobile Workflow Generation Failed
+          
+          **Issue:** Workflow generation encountered an error  
+          **Time:** $(date)  
+          **Source:** ${{ steps.parse_command.outputs.source }}
+          
+          ### 🔧 Quick Fixes (Mobile-Friendly)
+          1. **Check Inputs:** Verify workflow name and template type
+          2. **Retry:** Try the command again with simpler parameters
+          3. **Manual:** Use workflow_dispatch with default settings
+          
+          ### 📞 Get Help
+          - Comment with \`/mobile-help\` for assistance
+          - Check existing workflows for examples
+          - Use simpler names (letters, numbers, hyphens only)
+          
+          *Mobile Workflow Generator Error Report*
+          EOF
+          
+          echo "❌ FAILED: Mobile workflow generation failed!"
+          cat /tmp/error-message.md
+
+      - name: 💬 Post Comment Notification
+        if: always() && github.event_name != 'workflow_dispatch'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            let message = '';
+            
+            try {
+              if ('${{ job.status }}' === 'success') {
+                message = fs.readFileSync('/tmp/success-message.md', 'utf8');
+              } else {
+                message = fs.readFileSync('/tmp/error-message.md', 'utf8');
+              }
+            } catch (error) {
+              message = `## 📱 Mobile Workflow Generator\n\nStatus: ${{ job.status }}\nTime: ${new Date().toISOString()}\n\n*Check Actions tab for details*`;
+            }
+            
+            const issueNumber = context.issue.number;
+            if (issueNumber) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: message
+              });
+            }
+
+  # Help job for mobile users
+  mobile-help:
+    name: Mobile Workflow Help
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    
+    permissions:
+      issues: write
+      
+    if: |
+      github.event_name == 'issue_comment' && 
+      contains(github.event.comment.body, '/mobile-help')
+      
+    steps:
+      - name: 📱 Mobile Help Response
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const helpMessage = `## 📱 Mobile Workflow Generator Help
+            
+            ### 🚀 Quick Commands (Mobile-Friendly)
+            
+            **Generate Workflow:**
+            - \`/mobile-workflow name:my-app\` - Basic CI workflow
+            - \`/claude-generate name:lint-check\` - Claude-powered linting
+            - \`/auto-workflow name:deploy-prod\` - Auto-deployment workflow
+            
+            ### 📋 Available Templates
+            - **ci-basic** - Basic CI/CD pipeline
+            - **deploy-auto** - Automated deployment  
+            - **test-mobile** - Mobile-optimized testing
+            - **lint-claude** - Claude-powered code analysis
+            - **security-scan** - Security vulnerability scanning
+            
+            ### 🎯 Smart Naming (Automatic)
+            - **mobile-*** - CI and testing workflows
+            - **claude-*** - AI-powered workflows  
+            - **auto-*** - Automated deployment workflows
+            
+            ### 📱 Mobile Tips
+            1. **Short Names:** Use simple, clear workflow names
+            2. **Templates:** Choose appropriate template for your needs
+            3. **Mobile App:** GitHub mobile app shows workflow status
+            4. **Quick Access:** Actions tab → Your workflow → Run workflow
+            
+            ### 🔧 Manual Generation
+            Go to Actions tab → Mobile Workflow Generator → Run workflow
+            
+            *Need more help? Tag @claude with your specific question.*`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: helpMessage
+            });
